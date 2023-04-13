@@ -159,12 +159,11 @@ h1, h2, h3, h4, h5, h6 {
   z-index: 2;
 }
 
+.chat {
+  flex: 1 1;
+}
 .chat__container {
   display: flex;
-  height: 100vh;
-}
-.chat__container > div {
-  height: 100%;
 }
 .chat__left {
   padding: 15px;

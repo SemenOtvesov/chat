@@ -45,9 +45,9 @@
 }
 
 .chat {
+  flex: 1 1;
   &__container {
     display: flex;
-    & > div{height: 100%;}
   }
 
   &__left {
