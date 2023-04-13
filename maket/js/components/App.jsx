@@ -18,7 +18,7 @@ const storage = getStorage();
 const db = getDatabase();
 
 let userListMessageLocal = []; let userListMessageKeysLocal = []; let userUidLocal; let userNameLocal; let actMessageInfoLocal
-let defaultUid
+let defaultUid; let checkCallbackDb = false
 export default ()=>{
     const [RegInfo, setRegInfo] = useState({})
     const [userUid, setUserUid] = useState()
@@ -51,10 +51,10 @@ export default ()=>{
         appLoaderImg(storage)
     })
     useEffect(()=>{
-        const clickFn = windowListenerClick.bind(this, setActMessageInfo, setUser, auth)
+        const clickFn = windowListenerClick.bind(this, setActMessageInfo, setUserListMessage,  setUser, auth)
         document.addEventListener('click', clickFn)
 
-        const clickKeyUp = windowListenerKeyUp
+        const clickKeyUp = windowListenerKeyUp.bind(this, setUserListMessage)
         document.addEventListener('keyup', clickKeyUp)
 
         document.addEventListener('input', windowListenerInput.bind(this, setUserListMessageIntelayer, scrollWidth))
@@ -80,10 +80,17 @@ export default ()=>{
 
         if(defaultUid !== userUid){
             defaultUid = userUid
-            onValue(refDb(db, `userList/${userUid}/listMessage`), (snapshot) => {
-                const data = snapshot.val();
-                setUserListMessage({values: Object.values(data), keys: Object.keys(data)})
-            });
+            fetch(`${firebaseConfig.databaseURL}userList/${userUid}/listMessage.json`).then(rez=>rez.json()).then(rez=>{
+                if(rez){
+                    checkCallbackDb = true
+                    onValue(refDb(db, `userList/${userUid}/listMessage`), (snapshot) => {
+                        const data = snapshot.val();
+                        if(data){
+                            setUserListMessage({values: Object.values(data), keys: Object.keys(data)})
+                        }
+                    });
+                }
+            })
         }
 
         let fnChange = windowListenerChange.bind(this, userUid, storage, setСheckUploadLogoUser)
@@ -95,6 +102,8 @@ export default ()=>{
     useEffect(()=>{
         if(user && user.listMessage){
             setUserListMessage({values:Object.values(user.listMessage), keys: Object.keys(user.listMessage)})
+        }else{
+            setUserListMessage()
         }
         if(user){
             userNameLocal = user.userName
@@ -184,7 +193,7 @@ export default ()=>{
                                 </div>
                                 <div className="chat__login-submit-box">
                                     <button disabled className="chat__login-submit disabled" type="submit" >Войти</button>
-                                    <div className="chat__login-input-warning">Неправильный логин или пароль</div>
+                                    <div className="chat__login-input-warning">Неправильная почта или пароль</div>
                                 </div>
                                 <div className="chat__login-separator"><div>или</div></div>
                                 <div id="rotateLoginBtn" className="chat__login-submit">Зарегестрироваться</div>
@@ -214,7 +223,7 @@ export default ()=>{
 
                                 <div className="chat__login-submit-box">
                                     <button disabled className="chat__login-submit disabled" type="submit">Зарегестрироваться</button>
-                                    <div className="chat__login-input-warning"></div>
+                                    <div className="chat__login-input-warning">Данный аккаунт уже существует</div>
                                 </div>
                                 <div className="chat__login-separator"><div>или</div></div>
                                 <div id="rotateLoginBtn" className="chat__login-submit">Войти</div>
@@ -238,7 +247,7 @@ function equalSidesFn(){
     })
 }
 
-function windowListenerClick(setActMessageInfo, setUser, auth, event){
+function windowListenerClick(setActMessageInfo, setUserListMessage, setUser, auth, event){
     const target = event.target
     const bodyBackBlur = document.getElementById('bodyBackBlur')
 
@@ -280,7 +289,7 @@ function windowListenerClick(setActMessageInfo, setUser, auth, event){
         })
 
         if(!checkUnd){
-            const userNameMessage = document.getElementById('userNameMessage')
+            const userNameMessage = chatPrev.querySelector('#userNameMessage')
 
             setActMessageInfo({element:{messageHistory:{}, name: userNameMessage.innerHTML, userUid: chatPrev.dataset.userUid}, messageId:chatPrev.dataset.messageId})
             document.getElementById('chatRight').classList.add('active')
@@ -293,8 +302,10 @@ function windowListenerClick(setActMessageInfo, setUser, auth, event){
         const sendMessageBtn = target.closest('#sendMessageBtn')
         const message = sendMessageBtn.parentElement.firstElementChild
         const messageId = sendMessageBtn.closest('[data-message-id]').dataset.messageId
+        const chatName = sendMessageBtn.closest('[data-chat-name]').dataset.chatName
+        const chatUserUid = sendMessageBtn.closest('[data-chat-user-uid]').dataset.chatUserUid
 
-        postMessage(message, messageId)
+        postMessage(message, messageId, chatName, chatUserUid, setUserListMessage)
     }
 
     if(target.closest('#closeChatMainBtn')){
@@ -302,16 +313,18 @@ function windowListenerClick(setActMessageInfo, setUser, auth, event){
     }
 }
 
-function windowListenerKeyUp(event){
+function windowListenerKeyUp(setUserListMessage, event){
     if(event.key === 'Enter'){
         const message = document.getElementById('messageInput')
         const messageId = message.closest('[data-message-id]').dataset.messageId
+        const chatName = message.closest('[data-chat-name]').dataset.chatName
+        const chatUserUid = message.closest('[data-chat-user-uid]').dataset.chatUserUid
 
-        postMessage(message, messageId)
+        postMessage(message, messageId, chatName, chatUserUid, setUserListMessage)
     }
 }
 
-function postMessage(message, messageId){
+function postMessage(message, messageId, chatName, chatUserUid, setUserListMessage){
     if(message.value){
         const messaveValue = message.value
         const time = new Date().getTime()
@@ -320,46 +333,57 @@ function postMessage(message, messageId){
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({content: message.value, time, position: 'right'})
         }).then(rez=>{
-            const newActMessageInfoLocal = {...actMessageInfoLocal}
-
             let messegeIdAdress
-            fetch(`${firebaseConfig.databaseURL}userList/${newActMessageInfoLocal.element.userUid}/listMessage.json?orderBy="userUid"&equalTo="${userUidLocal}"`).then(rez=>rez.json()).then(rez=>{
+            fetch(`${firebaseConfig.databaseURL}userList/${chatUserUid}/listMessage.json?orderBy="userUid"&equalTo="${userUidLocal}"`).then(rez=>rez.json()).then(rez=>{
                 if(Object.keys(rez)[0]){
                     messegeIdAdress = Object.keys(rez)[0]
                 }else{
                     messegeIdAdress = creacteKey()
                 }
             }).then(rez=>{
-                fetch(`${firebaseConfig.databaseURL}userList/${newActMessageInfoLocal.element.userUid}/listMessage/${messegeIdAdress}/messageHistory.json`, {
+                fetch(`${firebaseConfig.databaseURL}userList/${chatUserUid}/listMessage/${messegeIdAdress}/messageHistory.json`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({content: messaveValue, time, position: 'left'})
                 })
 
-                if(userListMessageLocal.length > userChatsQuantityStart){
+                const checkIncludesChatArr = []
+                userListMessageLocal.forEach(el=>checkIncludesChatArr.push(el.userUid))
+
+                if(!checkIncludesChatArr.includes(chatUserUid)){
                     fetch(`${firebaseConfig.databaseURL}userList/${userUidLocal}/listMessage/${messageId}/name.json`, {
                         method: 'PUT',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(newActMessageInfoLocal.element.name)
+                        body: JSON.stringify(chatName)
                     })
                     fetch(`${firebaseConfig.databaseURL}userList/${userUidLocal}/listMessage/${messageId}/userUid.json`, {
                         method: 'PUT',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(newActMessageInfoLocal.element.userUid)
+                        body: JSON.stringify(chatUserUid)
                     })
     
-                    fetch(`${firebaseConfig.databaseURL}userList/${newActMessageInfoLocal.element.userUid}/listMessage/${messegeIdAdress}/name.json`, {
+                    fetch(`${firebaseConfig.databaseURL}userList/${chatUserUid}/listMessage/${messegeIdAdress}/name.json`, {
                         method: 'PUT',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify(userNameLocal)
                     })
-                    fetch(`${firebaseConfig.databaseURL}userList/${newActMessageInfoLocal.element.userUid}/listMessage/${messegeIdAdress}/userUid.json`, {
+                    fetch(`${firebaseConfig.databaseURL}userList/${chatUserUid}/listMessage/${messegeIdAdress}/userUid.json`, {
                         method: 'PUT',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify(userUidLocal)
                     })
                 }
             })
+
+            if(checkCallbackDb === false){
+                checkCallbackDb = true
+                onValue(refDb(db, `userList/${userUidLocal}/listMessage`), (snapshot) => {
+                    const data = snapshot.val();
+                    if(data){
+                        setUserListMessage({values: Object.values(data), keys: Object.keys(data)})
+                    }
+                });
+            }
 
             message.value = ''
         })
@@ -556,16 +580,16 @@ function windowListenerSubmit(setRegInfo, event){
 
     if(target.id === 'loginBack'){
         createUserWithEmailAndPassword(auth, userMail, userPass).catch(err=>{
-            target.querySelector('button').classList.add('notValid')
+            target.querySelector('button').parentElement.classList.add('notValid')
             setTimeout(()=>{
-                target.querySelector('button').classList.remove('notValid')
+                target.querySelector('button').parentElement.classList.remove('notValid')
             },2000)
         })
 
         const userName = target.querySelector('[name=userName]').value
         const userPhone = target.querySelector('[name=userPhone]').value
 
-        setRegInfo({userName, userMail, userPass, userPhone})
+        setRegInfo({userName, userMail, userPass, userPhone, messageHistory: []})
     }else{
         signInWithEmailAndPassword(auth, userMail, userPass).catch(err=>{
             target.querySelector('button').parentElement.classList.add('notValid')
@@ -744,7 +768,9 @@ function creacteChatMain(scrollWidth, messageInfoObj){
                     </div>
         })}
     }
-    return <div className="chat__right-main" data-message-id={messageInfoObj ? messageInfoObj.messageId : ''}>
+    return <div className="chat__right-main"    data-message-id={messageInfoObj ? messageInfoObj.messageId : ''}
+                                                data-chat-name={messageInfoObj ? messageInfoObj.element.name : ''}
+                                                data-chat-user-uid={messageInfoObj ? messageInfoObj.element.userUid : ''}>
         <div className="chat__right-title">
             {scrollWidth < 769 ? <div id="closeChatMainBtn" className="chat__right-title-arrow"/> : ''}
             <div className="chat__right-logo">
